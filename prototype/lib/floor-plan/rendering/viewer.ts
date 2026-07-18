@@ -334,6 +334,7 @@ export function createFloorPlanViewer(
 
     if (placementMode) {
       const point = pickSurface(event);
+      console.log("[viewer] placement click", { hasFloor: !!floorMesh, hasWall: !!wallMesh, point: point ? [point.x, point.y, point.z] : null });
       if (point) {
         options.onPlace?.({
           x: point.x,

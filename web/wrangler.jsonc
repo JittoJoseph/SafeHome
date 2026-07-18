@@ -28,9 +28,14 @@
       "binding": "WORKER_SELF_REFERENCE",
       "service": "safehome",
     },
+    {
+      "binding": "API",
+      "service": "worker-api",
+    },
   ],
   "observability": {
     "enabled": true,
+    "head_sampling_rate": 1,
   },
   "upload_source_maps": true,
   /**

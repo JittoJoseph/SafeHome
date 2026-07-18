@@ -82,14 +82,19 @@ export function FloorPlanViewer({
 
   const active = pois.find((poi) => poi.id === selectedId);
   const hint = placing
-    ? "Placement mode — click the model to drop the marker"
-    : active
-      ? `Selected: ${active.type} — drag the gizmo arrows to reposition`
-      : `${pois.length} POIs in view`;
+    ? "Click the model to drop the marker · Esc to cancel"
+    : active && editable
+      ? "Drag the gizmo arrows to reposition · X / Y / Z"
+      : `${pois.length} ${pois.length === 1 ? "marker" : "markers"} in view`;
 
   return (
     <div className={`viewer-wrap${placing ? " placing" : ""}`}>
       <div className="viewer" ref={host} />
+      <div className="viewer-toolbar">
+        <span className="viewer-badge">{editable ? "Editable" : "Read only"}</span>
+        {placing && <span className="viewer-badge mode">Placement mode</span>}
+        {active && editable && !placing && <span className="viewer-badge mode">Editing · {active.type}</span>}
+      </div>
       <div className="viewer-status">
         <span>{status}</span>
         <span>{hint}</span>

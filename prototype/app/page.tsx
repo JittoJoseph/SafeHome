@@ -155,33 +155,56 @@ export default function Page() {
         <TopBar role={role} setRole={setRole} />
         <section className="landing">
           <div className="hero">
-            <div>
+            <div className="hero-copy">
               <p className="eyebrow">SafeHome — Emergency Response Platform</p>
-              <h1>Information that<br /><em>arrives before you do.</em></h1>
+              <h1 className="hero-title">Information that <em>arrives before&nbsp;you&nbsp;do.</em></h1>
               <p className="hero-lede">Homeowners map their property once. When seconds matter, operators and first responders see the layout, hazards, and live incident detail before they reach the door.</p>
               <div className="hero-actions">
                 <button className="btn btn-primary" onClick={() => setRole("owner")}>Enter homeowner workspace</button>
                 <button className="btn btn-link" onClick={() => setRole("operator")}>Open operator console →</button>
               </div>
             </div>
-            <ConsolePreview />
+            <div className="hero-visual"><ConsolePreview /></div>
           </div>
 
-          <div className="how">
-            <p className="eyebrow">How it works</p>
-            <div className="how-grid">
+          <div className="landing-section">
+            <div className="ls-head">
+              <p className="eyebrow">Three roles, one source of truth</p>
+              <h2 className="ls-title">Built for everyone in the emergency chain</h2>
+            </div>
+            <div className="role-grid">
               {[
-                ["01", "Map the property", "Upload a floor plan and SafeHome builds a lightweight 3D model in the browser — no server rendering."],
-                ["02", "Mark what matters", "Place homeowner points of interest for panels, valves, and hazards directly onto the model."],
-                ["03", "Respond informed", "Operators open a live situation and responders navigate the model with every marker visible."],
-              ].map(([no, title, body]) => (
-                <div className="how-cell" key={no}>
-                  <span className="step-no">{no}</span>
+                ["owner", "Homeowner", "Create properties, upload floor plans, and place permanent safety markers on the 3D model."],
+                ["operator", "Emergency operator", "Search any property, open a live situation, and add incident-specific detail in seconds."],
+                ["responder", "First responder", "Navigate the model on arrival with every homeowner and operator marker in view."],
+              ].map(([r, title, body], i) => (
+                <button className="role-tile" key={r} onClick={() => setRole(r as Role)}>
+                  <span className="rt-index">0{i + 1}</span>
                   <b>{title}</b>
                   <p>{body}</p>
-                </div>
+                  <span className="rt-go">Open workspace →</span>
+                </button>
               ))}
             </div>
+          </div>
+
+          <div className="landing-section">
+            <div className="ls-head">
+              <p className="eyebrow">How it works</p>
+              <h2 className="ls-title">From floor plan to front door</h2>
+            </div>
+            <ol className="steps-list">
+              {[
+                ["01", "Map the property", "Upload a floor plan and SafeHome builds a lightweight, interactive 3D model in the browser — no server rendering."],
+                ["02", "Mark what matters", "Place points of interest for panels, valves, and hazards directly onto the model with a live gizmo."],
+                ["03", "Respond informed", "Operators open a live situation and responders navigate with every marker visible on arrival."],
+              ].map(([no, title, body]) => (
+                <li className="step-item" key={no}>
+                  <span className="si-no">{no}</span>
+                  <div className="si-body"><b>{title}</b><p>{body}</p></div>
+                </li>
+              ))}
+            </ol>
           </div>
         </section>
       </main>
@@ -367,28 +390,46 @@ export default function Page() {
 
       {role === "owner" && (
         <section className="page">
-          <div className="section-head">
+          <div className="page-head">
             <div>
               <p className="eyebrow">Homeowner workspace</p>
               <h1>Your properties</h1>
-              <p>Manage floor plans and the permanent safety information responders rely on.</p>
             </div>
             <button className="btn btn-primary" onClick={startOnboarding}>New property</button>
           </div>
-          <div className="card-grid">
-            {properties.map((item) => (
-              <div className="entity" key={item.id}>
-                <button className="entity-card" onClick={() => setOpen(item.id)}>
-                  <span className="entity-tag">Property record</span>
-                  <b>{item.name}</b>
-                  <small>{item.address}</small>
-                  <span className="entity-foot">{item.pois.length} markers <em>→</em></span>
-                </button>
-                <button className="entity-del" aria-label={`Delete ${item.name}`} title="Delete property"
-                  onClick={() => { if (window.confirm(`Delete ${item.name}? This removes its floor plan and markers.`)) deleteProperty(item.id); }}>×</button>
+          <p className="page-sub">Manage floor plans and the permanent safety information responders rely on.</p>
+
+          {properties.length ? (
+            <div className="record-list">
+              <div className="rl-legend">
+                <span>Property</span>
+                <span>Owner</span>
+                <span>Markers</span>
+                <span />
               </div>
-            ))}
-          </div>
+              {properties.map((item) => (
+                <div className="record-row" key={item.id}>
+                  <button className="record-main" onClick={() => setOpen(item.id)}>
+                    <span className="rr-primary">
+                      <b>{item.name}</b>
+                      <small>{item.address}</small>
+                    </span>
+                    <span className="rr-owner">{item.owner}</span>
+                    <span className="rr-count">{item.pois.length}</span>
+                    <span className="rr-go" aria-hidden>→</span>
+                  </button>
+                  <button className="record-del" aria-label={`Delete ${item.name}`} title="Delete property"
+                    onClick={() => { if (window.confirm(`Delete ${item.name}? This removes its floor plan and markers.`)) deleteProperty(item.id); }}>×</button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-block">
+              <p className="eyebrow">No properties yet</p>
+              <h2>Add your first property</h2>
+              <p>Upload a floor plan to generate a 3D model and start placing safety markers.</p>
+            </div>
+          )}
         </section>
       )}
 
@@ -419,27 +460,37 @@ export default function Page() {
 
       {role === "responder" && (
         <section className="page">
-          <div className="section-head">
+          <div className="page-head">
             <div>
               <p className="eyebrow coral">First responder</p>
               <h1>Active incidents</h1>
-              <p>Read-only property models with every homeowner and operator marker for the current situation.</p>
             </div>
           </div>
+          <p className="page-sub">Read-only property models with every homeowner and operator marker for the current situation.</p>
+
           {incidents.length ? (
-            <div className="card-grid">
+            <div className="record-list">
+              <div className="rl-legend">
+                <span>Incident</span>
+                <span>Owner</span>
+                <span>Markers</span>
+                <span />
+              </div>
               {incidents.map((item) => {
                 const linked = properties.find((p) => p.id === item.propertyId);
                 if (!linked) return null;
                 return (
-                  <div className="entity" key={item.id}>
-                    <button className="entity-card" onClick={() => setOpen(linked.id)}>
-                      <span className="entity-tag live">● Live incident</span>
-                      <b>{linked.address}</b>
-                      <small>{linked.name} · {linked.owner}</small>
-                      <span className="entity-foot">{linked.pois.length + item.pois.length} markers <em>→</em></span>
+                  <div className="record-row" key={item.id}>
+                    <button className="record-main" onClick={() => setOpen(linked.id)}>
+                      <span className="rr-primary">
+                        <b><span className="rr-live" />{linked.address}</b>
+                        <small>{linked.name} · {item.created}</small>
+                      </span>
+                      <span className="rr-owner">{linked.owner}</span>
+                      <span className="rr-count">{linked.pois.length + item.pois.length}</span>
+                      <span className="rr-go" aria-hidden>→</span>
                     </button>
-                    <button className="entity-del" aria-label="Close incident" title="Close incident"
+                    <button className="record-del" aria-label="Close incident" title="Close incident"
                       onClick={() => { if (window.confirm(`Close the live incident at ${linked.address}?`)) closeIncident(linked.id); }}>×</button>
                   </div>
                 );

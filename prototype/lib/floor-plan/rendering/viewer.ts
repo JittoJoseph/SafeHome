@@ -157,7 +157,7 @@ function setMarkerSelected(mesh: THREE.Mesh, selected: boolean): void {
 
 function disposeObject(root: THREE.Object3D): void {
   root.traverse((obj) => {
-    const css = obj as unknown as CSS2DObject;
+    const css = obj as Partial<CSS2DObject> & { isCSS2DObject?: boolean };
     if (css.isCSS2DObject && css.element?.parentNode) css.element.parentNode.removeChild(css.element);
     const mesh = obj as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();

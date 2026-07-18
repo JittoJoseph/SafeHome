@@ -1,18 +1,35 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { FloorPlanModel, Ring, WallFootprint } from "../model";
+
+export interface ViewerMarker {
+  id: string;
+  x: number;
+  y?: number;
+  z: number;
+  color: number;
+}
 
 export interface ViewerOptions {
   wallColor?: number;
   floorColor?: number;
   backgroundColor?: number;
   showGrid?: boolean;
-  markers?: Array<{ x: number; y?: number; z: number; color: number }>;
+  markers?: ViewerMarker[];
+  /** Fired when the user clicks the model while placement mode is active. */
+  onPlace?: (point: { x: number; y: number; z: number }) => void;
+  /** Fired when the user picks a marker (or empty space, giving undefined). */
+  onSelect?: (id: string | undefined) => void;
+  /** Fired continuously while a marker is dragged by its transform gizmo. */
+  onMove?: (id: string, point: { x: number; y: number; z: number }) => void;
 }
 
 export interface FloorPlanViewer {
   setModel(model: FloorPlanModel): void;
-  setMarkers(markers: NonNullable<ViewerOptions["markers"]>): void;
+  setMarkers(markers: ViewerMarker[]): void;
+  setSelection(id: string | undefined): void;
+  setPlacementMode(active: boolean): void;
   resetView(): void;
   dispose(): void;
 }
@@ -22,6 +39,9 @@ const DEFAULTS = {
   floorColor: 0xffffff,
   backgroundColor: 0x1a1c22,
 };
+
+const MARKER_RADIUS = 0.14;
+const MARKER_MIN_Y = MARKER_RADIUS;
 
 function planSizeMeters(model: FloorPlanModel): { width: number; depth: number } {
   return {
@@ -118,17 +138,49 @@ function buildGrid(model: FloorPlanModel): THREE.GridHelper {
   return grid;
 }
 
-function buildMarkers(markers: ViewerOptions["markers"]): THREE.Group {
-  const group = new THREE.Group();
-  for (const marker of markers ?? []) {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 16, 16),
-      new THREE.MeshStandardMaterial({ color: marker.color, emissive: marker.color, emissiveIntensity: 0.2 }),
-    );
-    mesh.position.set(marker.x, marker.y ?? 0.15, marker.z);
-    group.add(mesh);
-  }
-  return group;
+function buildMarker(marker: ViewerMarker): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(MARKER_RADIUS, 20, 20),
+    new THREE.MeshStandardMaterial({
+      color: marker.color,
+      emissive: marker.color,
+      emissiveIntensity: 0.25,
+      roughness: 0.4,
+    }),
+  );
+  mesh.name = "marker";
+  mesh.position.set(marker.x, marker.y ?? MARKER_MIN_Y, marker.z);
+  mesh.userData.id = marker.id;
+  mesh.castShadow = true;
+
+  // A soft halo ring, hidden until the marker is selected.
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(MARKER_RADIUS * 1.6, MARKER_RADIUS * 2.1, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthTest: false,
+    }),
+  );
+  ring.name = "halo";
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -MARKER_RADIUS + 0.01;
+  ring.visible = false;
+  ring.renderOrder = 2;
+  ring.raycast = () => {}; // never intercept picking
+  mesh.add(ring);
+
+  return mesh;
+}
+
+function setMarkerSelected(mesh: THREE.Mesh, selected: boolean): void {
+  const material = mesh.material as THREE.MeshStandardMaterial;
+  material.emissiveIntensity = selected ? 0.6 : 0.25;
+  mesh.scale.setScalar(selected ? 1.25 : 1);
+  const halo = mesh.getObjectByName("halo");
+  if (halo) halo.visible = selected;
 }
 
 function disposeObject(root: THREE.Object3D): void {
@@ -164,6 +216,7 @@ export function createFloorPlanViewer(
   renderer.domElement.style.display = "block";
   renderer.domElement.style.width = "100%";
   renderer.domElement.style.height = "100%";
+  renderer.domElement.style.touchAction = "none";
   container.appendChild(renderer.domElement);
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 10000);
@@ -181,9 +234,39 @@ export function createFloorPlanViewer(
   scene.add(keyLight);
 
   let content = new THREE.Group();
-  let markerLayer = new THREE.Group();
   scene.add(content);
+
+  // Markers and the transform gizmo live outside `content` so they survive
+  // model rebuilds and keep their identity across React updates.
+  const markerLayer = new THREE.Group();
+  scene.add(markerLayer);
+  const markerMeshes = new Map<string, THREE.Mesh>();
+
+  let floorMesh: THREE.Mesh | undefined;
+  let wallMesh: THREE.Mesh | undefined;
   let currentModel = model;
+
+  let selectedMesh: THREE.Mesh | undefined;
+  let placementMode = false;
+  let draggingGizmo = false;
+
+  const transform = new TransformControls(camera, renderer.domElement);
+  transform.setMode("translate");
+  transform.setSpace("world");
+  transform.setSize(0.9);
+  scene.add(transform.getHelper());
+  transform.addEventListener("change", () => requestRender());
+  transform.addEventListener("dragging-changed", (event) => {
+    draggingGizmo = event.value as boolean;
+    controls.enabled = !draggingGizmo;
+  });
+  transform.addEventListener("objectChange", () => {
+    if (!selectedMesh) return;
+    if (selectedMesh.position.y < MARKER_MIN_Y) selectedMesh.position.y = MARKER_MIN_Y;
+    const id = selectedMesh.userData.id as string;
+    const p = selectedMesh.position;
+    options.onMove?.(id, { x: p.x, y: p.y, z: p.z });
+  });
 
   let disposed = false;
   let frameId = 0;
@@ -200,6 +283,73 @@ export function createFloorPlanViewer(
     if (disposed || frameId !== 0) return;
     frameId = requestAnimationFrame(render);
   };
+
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+
+  const toPointer = (event: PointerEvent) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    raycaster.setFromCamera(pointer, camera);
+  };
+
+  const pickMarker = (event: PointerEvent): string | undefined => {
+    toPointer(event);
+    const hits = raycaster.intersectObjects(markerLayer.children, true);
+    for (const hit of hits) {
+      let obj: THREE.Object3D | null = hit.object;
+      while (obj && obj.userData.id === undefined) obj = obj.parent;
+      if (obj) return obj.userData.id as string;
+    }
+    return undefined;
+  };
+
+  const pickSurface = (event: PointerEvent): THREE.Vector3 | undefined => {
+    toPointer(event);
+    const targets = [floorMesh, wallMesh].filter(Boolean) as THREE.Object3D[];
+    const hit = raycaster.intersectObjects(targets, false)[0];
+    return hit?.point.clone();
+  };
+
+  // Distinguish a click from an orbit drag using pointer travel distance.
+  let downX = 0;
+  let downY = 0;
+  let downButton = 0;
+
+  const onPointerDown = (event: PointerEvent) => {
+    downX = event.clientX;
+    downY = event.clientY;
+    downButton = event.button;
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    // Ignore synthetic clicks that follow a gizmo drag or an orbit move.
+    if (draggingGizmo) return;
+    if (event.button !== 0 || downButton !== 0) return;
+    const travel = Math.hypot(event.clientX - downX, event.clientY - downY);
+    if (travel > 5) return;
+
+    if (placementMode) {
+      const point = pickSurface(event);
+      if (point) {
+        options.onPlace?.({
+          x: point.x,
+          y: Math.max(MARKER_MIN_Y, point.y + MARKER_RADIUS),
+          z: point.z,
+        });
+      }
+      return;
+    }
+
+    const id = pickMarker(event);
+    options.onSelect?.(id);
+  };
+
+  renderer.domElement.addEventListener("pointerdown", onPointerDown);
+  renderer.domElement.addEventListener("pointerup", onPointerUp);
 
   const frameCamera = (m: FloorPlanModel) => {
     const { width, depth } = planSizeMeters(m);
@@ -232,15 +382,65 @@ export function createFloorPlanViewer(
     scene.remove(content);
 
     content = new THREE.Group();
-    content.add(buildFloor(m, floorColor, requestRender));
-    content.add(buildWalls(m, wallColor));
-    markerLayer = buildMarkers(options.markers);
-    content.add(markerLayer);
+    floorMesh = buildFloor(m, floorColor, requestRender);
+    wallMesh = buildWalls(m, wallColor);
+    content.add(floorMesh);
+    content.add(wallMesh);
     if (showGrid) content.add(buildGrid(m));
     scene.add(content);
 
     frameCamera(m);
     requestRender();
+  };
+
+  const applyMarkers = (markers: ViewerMarker[]) => {
+    const seen = new Set<string>();
+    for (const marker of markers) {
+      seen.add(marker.id);
+      let mesh = markerMeshes.get(marker.id);
+      if (!mesh) {
+        mesh = buildMarker(marker);
+        markerLayer.add(mesh);
+        markerMeshes.set(marker.id, mesh);
+      } else if (!(draggingGizmo && mesh === selectedMesh)) {
+        mesh.position.set(marker.x, marker.y ?? MARKER_MIN_Y, marker.z);
+      }
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      if (material.color.getHex() !== marker.color) {
+        material.color.setHex(marker.color);
+        material.emissive.setHex(marker.color);
+      }
+    }
+    for (const [id, mesh] of markerMeshes) {
+      if (seen.has(id)) continue;
+      if (mesh === selectedMesh) {
+        transform.detach();
+        selectedMesh = undefined;
+      }
+      markerLayer.remove(mesh);
+      disposeObject(mesh);
+      markerMeshes.delete(id);
+    }
+    requestRender();
+  };
+
+  const setSelection = (id: string | undefined) => {
+    const next = id ? markerMeshes.get(id) : undefined;
+    if (next === selectedMesh) return;
+    if (selectedMesh) setMarkerSelected(selectedMesh, false);
+    selectedMesh = next;
+    if (selectedMesh) {
+      setMarkerSelected(selectedMesh, true);
+      transform.attach(selectedMesh);
+    } else {
+      transform.detach();
+    }
+    requestRender();
+  };
+
+  const setPlacementMode = (active: boolean) => {
+    placementMode = active;
+    container.style.cursor = active ? "crosshair" : "";
   };
 
   const resize = () => {
@@ -257,6 +457,7 @@ export function createFloorPlanViewer(
   controls.addEventListener("change", requestRender);
 
   populate(model);
+  applyMarkers(options.markers ?? []);
   resize();
 
   return {
@@ -264,11 +465,13 @@ export function createFloorPlanViewer(
       populate(next);
     },
     setMarkers(markers) {
-      content.remove(markerLayer);
-      disposeObject(markerLayer);
-      markerLayer = buildMarkers(markers);
-      content.add(markerLayer);
-      requestRender();
+      applyMarkers(markers);
+    },
+    setSelection(id) {
+      setSelection(id);
+    },
+    setPlacementMode(active) {
+      setPlacementMode(active);
     },
     resetView() {
       frameCamera(currentModel);
@@ -280,8 +483,13 @@ export function createFloorPlanViewer(
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       controls.removeEventListener("change", requestRender);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp);
+      transform.detach();
+      transform.dispose();
       controls.dispose();
       disposeObject(content);
+      disposeObject(markerLayer);
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);

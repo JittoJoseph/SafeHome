@@ -7,11 +7,12 @@ export interface ViewerOptions {
   floorColor?: number;
   backgroundColor?: number;
   showGrid?: boolean;
-  markers?: Array<{ x: number; z: number; color: number }>;
+  markers?: Array<{ x: number; y?: number; z: number; color: number }>;
 }
 
 export interface FloorPlanViewer {
   setModel(model: FloorPlanModel): void;
+  setMarkers(markers: NonNullable<ViewerOptions["markers"]>): void;
   resetView(): void;
   dispose(): void;
 }
@@ -124,7 +125,7 @@ function buildMarkers(markers: ViewerOptions["markers"]): THREE.Group {
       new THREE.SphereGeometry(0.12, 16, 16),
       new THREE.MeshStandardMaterial({ color: marker.color, emissive: marker.color, emissiveIntensity: 0.2 }),
     );
-    mesh.position.set(marker.x, 0.15, marker.z);
+    mesh.position.set(marker.x, marker.y ?? 0.15, marker.z);
     group.add(mesh);
   }
   return group;
@@ -180,6 +181,7 @@ export function createFloorPlanViewer(
   scene.add(keyLight);
 
   let content = new THREE.Group();
+  let markerLayer = new THREE.Group();
   scene.add(content);
   let currentModel = model;
 
@@ -232,7 +234,8 @@ export function createFloorPlanViewer(
     content = new THREE.Group();
     content.add(buildFloor(m, floorColor, requestRender));
     content.add(buildWalls(m, wallColor));
-    content.add(buildMarkers(options.markers));
+    markerLayer = buildMarkers(options.markers);
+    content.add(markerLayer);
     if (showGrid) content.add(buildGrid(m));
     scene.add(content);
 
@@ -259,6 +262,13 @@ export function createFloorPlanViewer(
   return {
     setModel(next: FloorPlanModel) {
       populate(next);
+    },
+    setMarkers(markers) {
+      content.remove(markerLayer);
+      disposeObject(markerLayer);
+      markerLayer = buildMarkers(markers);
+      content.add(markerLayer);
+      requestRender();
     },
     resetView() {
       frameCamera(currentModel);

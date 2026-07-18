@@ -1,65 +1,7 @@
-import Image from "next/image";
-
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
-}
+"use client";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { FloorPlanViewer, Poi } from "./FloorPlanViewer";
+type Property={id:string;name:string;owner:string;address:string;image:string;pois:Poi[]}; type Situation={id:string;propertyId:string;status:"Active";created:string;pois:Poi[]}; type Role="home"|"owner"|"operator"|"responder";
+const sample:Property={id:"willow",name:"Willow House",owner:"Mira Patel",address:"18 Cedar Grove, Brookfield",image:"/sample-floor-plan.png",pois:[{id:"panel",type:"Electrical Panel",label:"Garage utility wall",kind:"owner",x:-2.8,z:1.5},{id:"gas",type:"Gas Valve",label:"Kitchen exterior",kind:"owner",x:1.8,z:-1.8}]};
+export default function Page(){const [role,setRole]=useState<Role>("home"),[properties,setProperties]=useState<Property[]>([sample]),[situations,setSituations]=useState<Situation[]>([{id:"s1",propertyId:"willow",status:"Active",created:"Just now",pois:[{id:"fire",type:"Fire Origin",label:"Living room",kind:"operator",x:0,z:.5}]}]),[selected,setSelected]=useState("willow"),[query,setQuery]=useState("");useEffect(()=>{const x=localStorage.getItem("safehome-prototype");if(x){const d=JSON.parse(x);setProperties(d.properties);setSituations(d.situations)}} ,[]);useEffect(()=>localStorage.setItem("safehome-prototype",JSON.stringify({properties,situations})),[properties,situations]);const property=properties.find(x=>x.id===selected)||properties[0];const active=situations.find(x=>x.propertyId===property.id);const allPois=[...property.pois,...(active?.pois||[])];const addPoi=(kind:"owner"|"operator")=>{const type=kind==="owner"?"Electrical Panel":"Trapped Victim";const p={id:crypto.randomUUID(),type,label:kind==="owner"?"Marked location":"Reported location",kind,x:1,z:1} as Poi;if(kind==="owner")setProperties(v=>v.map(x=>x.id===property.id?{...x,pois:[...x.pois,p]}:x));else setSituations(v=>v.map(x=>x.propertyId===property.id?{...x,pois:[...x.pois,p]}:x))};const upload=(e:ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>setProperties(v=>v.map(x=>x.id===property.id?{...x,image:String(r.result)}:x));r.readAsDataURL(f)};const create=()=>{const p={id:crypto.randomUUID(),name:"New property",owner:"Mira Patel",address:"Add an address",image:"/sample-floor-plan.png",pois:[]};setProperties(v=>[...v,p]);setSelected(p.id)};const createSituation=()=>{if(!situations.some(x=>x.propertyId===property.id))setSituations(v=>[{id:crypto.randomUUID(),propertyId:property.id,status:"Active",created:"Just now",pois:[]},...v])};const matches=useMemo(()=>properties.filter(p=>(p.owner+p.address).toLowerCase().includes(query.toLowerCase())),[query,properties]);if(role==="home")return <main className="landing"><p className="eyebrow">SafeHome · prototype</p><h1>See the home before entering it.</h1><p>Local interactive demo for permanent property information and live emergency context.</p><div className="role-grid">{([['owner','View as Homeowner','Manage homes and permanent infrastructure'],['operator','View as Operator','Search, open situations, add live context'],['responder','View as First Responder','Read active situations in seconds']] as const).map(([r,t,d])=><button key={r} onClick={()=>setRole(r)}><strong>{t}</strong><span>{d}</span><b>Open →</b></button>)}</div></main>;
+return <main className="app"><header><button className="brand" onClick={()=>setRole("home")}>SAFEHOME</button><nav>{["owner","operator","responder"].map(r=><button key={r} className={role===r?"active":""} onClick={()=>setRole(r as Role)}>{r}</button>)}</nav><span className="local">LOCAL DEMO</span></header><section className="workspace"><aside><p className="eyebrow">{role} workspace</p>{role==="owner"&&<><button className="primary" onClick={create}>+ Add property</button><div className="list">{properties.map(p=><button onClick={()=>setSelected(p.id)} className={p.id===property.id?"picked":""} key={p.id}><strong>{p.name}</strong><span>{p.address}</span></button>)}</div></>}{role==="operator"&&<><input autoFocus placeholder="Search owner or address" value={query} onChange={e=>setQuery(e.target.value)}/><div className="list">{matches.map(p=><button className={p.id===property.id?"picked":""} onClick={()=>setSelected(p.id)} key={p.id}><strong>{p.address}</strong><span>{p.owner}</span></button>)}</div></>}{role==="responder"&&<div className="list">{situations.map(s=>{const p=properties.find(x=>x.id===s.propertyId)!;return <button onClick={()=>setSelected(p.id)} className={p.id===property.id?"picked":""} key={s.id}><strong>{p.address}</strong><span>Active · {s.created}</span></button>})}</div>}</aside><section className="content"><div className="title"><div><p className="eyebrow">{active?"Active situation":"Property record"}</p><h1>{property.name}</h1><p>{property.address} · Owner: {property.owner}</p></div>{role==="operator"&&!active&&<button className="primary" onClick={createSituation}>Create situation</button>}</div><FloorPlanViewer image={property.image} pois={allPois}/><div className="details"><section><h2>Points of interest</h2>{allPois.map(p=><p key={p.id}><i className={p.kind}/><b>{p.type}</b> · {p.label}</p>)}{role!=="responder"&&<button onClick={()=>addPoi(role==="owner"?"owner":"operator")}>+ Add {role==="owner"?"homeowner":"incident"} POI</button>}</section>{role!=="responder"&&<section><h2>{role==="owner"?"Floor plan":"Situation controls"}</h2>{role==="owner"?<label className="upload">Replace floor plan<input type="file" accept="image/*" onChange={upload}/></label>:<><img src={property.image} alt="Original floor plan"/><p>Original floor plan attached to this active situation.</p></>}</section>}</div></section></section></main>}

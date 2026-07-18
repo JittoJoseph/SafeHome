@@ -51,10 +51,12 @@ export default function Page() {
   const [placingType, setPlacingType] = useState<string>();
   const [confirmAction, setConfirmAction] = useState<{ label: string; verb: string; run: () => void }>();
 
+  // Hydrate persisted state after mount to avoid SSR hydration mismatches.
   useEffect(() => {
     const saved = localStorage.getItem("safehome-v4");
     if (!saved) return;
     const data = JSON.parse(saved) as { properties: Property[]; incidents: Incident[] };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot load from localStorage on mount
     setProperties([...data.properties, ...samples.filter((sample) => !data.properties.some((property) => property.id === sample.id))]);
     setIncidents(data.incidents);
   }, []);
@@ -249,6 +251,7 @@ export default function Page() {
               <p className="lede">A clean, high-contrast plan works best — white background, black walls. We build the 3D model locally in your browser.</p>
               <label className={`dropzone${draft.image ? " filled" : ""}`}>
                 {draft.image
+                  // eslint-disable-next-line @next/next/no-img-element -- local data-URL preview, next/image cannot optimise it
                   ? <img src={draft.image} alt="Floor plan preview" />
                   : <div className="dropzone-empty"><span className="di">↑</span><b>Choose an image</b><span>PNG or JPG floor plan</span></div>}
                 <input type="file" accept="image/*" onChange={draftUpload} />

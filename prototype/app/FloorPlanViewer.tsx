@@ -73,6 +73,8 @@ export function FloorPlanViewer({
     source.onerror = () => setStatus("Unable to read this floor plan image");
     source.src = image;
     return () => { cancelled = true; viewer?.dispose(); viewerRef.current = undefined; };
+    // Recreate the viewer only when the image changes; pois/editable are pushed via dedicated effects below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image]);
 
   useEffect(() => { viewerRef.current?.setMarkers(toMarkers(pois)); }, [pois]);

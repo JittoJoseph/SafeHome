@@ -6,10 +6,10 @@ import { createFloorPlanViewer, type ViewerMarker } from "@/lib/floor-plan/rende
 
 export type Poi = { id: string; type: string; label: string; kind: "owner" | "operator"; x: number; y: number; z: number };
 
-const MARKER_COLORS: Record<Poi["kind"], number> = { owner: 0x21a786, operator: 0xf06a54 };
+const MARKER_COLORS: Record<Poi["kind"], number> = { owner: 0x1f9d78, operator: 0xff7759 };
 
 const toMarkers = (pois: Poi[]): ViewerMarker[] =>
-  pois.map((poi) => ({ id: poi.id, x: poi.x, y: poi.y, z: poi.z, color: MARKER_COLORS[poi.kind] }));
+  pois.map((poi) => ({ id: poi.id, x: poi.x, y: poi.y, z: poi.z, color: MARKER_COLORS[poi.kind], title: poi.type, kind: poi.kind }));
 
 export function FloorPlanViewer({
   image,
@@ -59,8 +59,9 @@ export function FloorPlanViewer({
       const model = processFloorPlan(pixels, { textureDataUrl: image });
       if (cancelled) return;
       viewer = createFloorPlanViewer(container, model, {
-        backgroundColor: 0x10201d,
+        backgroundColor: 0x0a1512,
         wallColor: 0xe9e2d4,
+        editable,
         markers: toMarkers(pois),
         onSelect: (id) => onSelectRef.current?.(id),
         onPlace: (point) => onPlaceRef.current?.(point),
@@ -75,7 +76,8 @@ export function FloorPlanViewer({
   }, [image]);
 
   useEffect(() => { viewerRef.current?.setMarkers(toMarkers(pois)); }, [pois]);
-  useEffect(() => { viewerRef.current?.setSelection(editable ? selectedId : undefined); }, [selectedId, editable]);
+  useEffect(() => { viewerRef.current?.setSelection(selectedId); }, [selectedId]);
+  useEffect(() => { viewerRef.current?.setEditable(editable); }, [editable]);
   useEffect(() => { viewerRef.current?.setPlacementMode(editable && placing); }, [placing, editable]);
 
   const active = pois.find((poi) => poi.id === selectedId);

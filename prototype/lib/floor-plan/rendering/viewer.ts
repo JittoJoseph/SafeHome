@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { FloorPlanModel, Ring, WallFootprint } from "../model";
 
 export interface ViewerMarker {
@@ -9,6 +10,10 @@ export interface ViewerMarker {
   y?: number;
   z: number;
   color: number;
+  /** Text shown on the floating world-space tag. */
+  title?: string;
+  /** Visual family, drives the tag accent colour. */
+  kind?: "owner" | "operator";
 }
 
 export interface ViewerOptions {
@@ -16,6 +21,7 @@ export interface ViewerOptions {
   floorColor?: number;
   backgroundColor?: number;
   showGrid?: boolean;
+  editable?: boolean;
   markers?: ViewerMarker[];
   /** Fired when the user clicks the model while placement mode is active. */
   onPlace?: (point: { x: number; y: number; z: number }) => void;
@@ -30,6 +36,7 @@ export interface FloorPlanViewer {
   setMarkers(markers: ViewerMarker[]): void;
   setSelection(id: string | undefined): void;
   setPlacementMode(active: boolean): void;
+  setEditable(editable: boolean): void;
   resetView(): void;
   dispose(): void;
 }
@@ -130,61 +137,28 @@ function buildFloor(
 function buildGrid(model: FloorPlanModel): THREE.GridHelper {
   const { width, depth } = planSizeMeters(model);
   const span = Math.max(width, depth) * 2;
-  const grid = new THREE.GridHelper(span, Math.max(10, Math.round(span)), 0x555b66, 0x33373f);
+  const grid = new THREE.GridHelper(span, Math.max(10, Math.round(span)), 0x2f6f60, 0x24443d);
   const material = grid.material as THREE.Material;
   material.transparent = true;
-  material.opacity = 0.35;
+  material.opacity = 0.28;
   grid.position.y = -0.01;
   return grid;
 }
 
-function buildMarker(marker: ViewerMarker): THREE.Mesh {
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(MARKER_RADIUS, 20, 20),
-    new THREE.MeshStandardMaterial({
-      color: marker.color,
-      emissive: marker.color,
-      emissiveIntensity: 0.25,
-      roughness: 0.4,
-    }),
-  );
-  mesh.name = "marker";
-  mesh.position.set(marker.x, marker.y ?? MARKER_MIN_Y, marker.z);
-  mesh.userData.id = marker.id;
-  mesh.castShadow = true;
-
-  // A soft halo ring, hidden until the marker is selected.
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(MARKER_RADIUS * 1.6, MARKER_RADIUS * 2.1, 32),
-    new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.9,
-      side: THREE.DoubleSide,
-      depthTest: false,
-    }),
-  );
-  ring.name = "halo";
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = -MARKER_RADIUS + 0.01;
-  ring.visible = false;
-  ring.renderOrder = 2;
-  ring.raycast = () => {}; // never intercept picking
-  mesh.add(ring);
-
-  return mesh;
-}
-
 function setMarkerSelected(mesh: THREE.Mesh, selected: boolean): void {
   const material = mesh.material as THREE.MeshStandardMaterial;
-  material.emissiveIntensity = selected ? 0.6 : 0.25;
-  mesh.scale.setScalar(selected ? 1.25 : 1);
+  material.emissiveIntensity = selected ? 0.65 : 0.28;
+  mesh.scale.setScalar(selected ? 1.28 : 1);
   const halo = mesh.getObjectByName("halo");
   if (halo) halo.visible = selected;
+  const tag = mesh.userData.tagEl as HTMLElement | undefined;
+  if (tag) tag.classList.toggle("is-selected", selected);
 }
 
 function disposeObject(root: THREE.Object3D): void {
   root.traverse((obj) => {
+    const css = obj as unknown as CSS2DObject;
+    if (css.isCSS2DObject && css.element?.parentNode) css.element.parentNode.removeChild(css.element);
     const mesh = obj as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();
     const material = mesh.material;
@@ -219,6 +193,14 @@ export function createFloorPlanViewer(
   renderer.domElement.style.touchAction = "none";
   container.appendChild(renderer.domElement);
 
+  // Overlay renderer that projects HTML tags into world space.
+  const labelRenderer = new CSS2DRenderer();
+  labelRenderer.domElement.style.position = "absolute";
+  labelRenderer.domElement.style.top = "0";
+  labelRenderer.domElement.style.left = "0";
+  labelRenderer.domElement.style.pointerEvents = "none";
+  container.appendChild(labelRenderer.domElement);
+
   const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 10000);
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -249,16 +231,19 @@ export function createFloorPlanViewer(
   let selectedMesh: THREE.Mesh | undefined;
   let placementMode = false;
   let draggingGizmo = false;
+  let editable = options.editable ?? true;
 
   const transform = new TransformControls(camera, renderer.domElement);
   transform.setMode("translate");
   transform.setSpace("world");
-  transform.setSize(0.9);
+  transform.setSize(0.95);
   scene.add(transform.getHelper());
   transform.addEventListener("change", () => requestRender());
   transform.addEventListener("dragging-changed", (event) => {
     draggingGizmo = event.value as boolean;
     controls.enabled = !draggingGizmo;
+    // Hide the world-space tags while the gizmo is being used.
+    labelRenderer.domElement.style.opacity = draggingGizmo ? "0" : "1";
   });
   transform.addEventListener("objectChange", () => {
     if (!selectedMesh) return;
@@ -276,12 +261,68 @@ export function createFloorPlanViewer(
     if (disposed) return;
     const moving = controls.update();
     renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
     if (moving) requestRender();
   };
 
   const requestRender = () => {
     if (disposed || frameId !== 0) return;
     frameId = requestAnimationFrame(render);
+  };
+
+  const makeMarker = (marker: ViewerMarker): THREE.Mesh => {
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(MARKER_RADIUS, 20, 20),
+      new THREE.MeshStandardMaterial({
+        color: marker.color,
+        emissive: marker.color,
+        emissiveIntensity: 0.28,
+        roughness: 0.4,
+      }),
+    );
+    mesh.name = "marker";
+    mesh.position.set(marker.x, marker.y ?? MARKER_MIN_Y, marker.z);
+    mesh.userData.id = marker.id;
+    mesh.castShadow = true;
+
+    // Selection halo, hidden until the marker is selected.
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(MARKER_RADIUS * 1.7, MARKER_RADIUS * 2.2, 40),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    ring.name = "halo";
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -MARKER_RADIUS + 0.01;
+    ring.visible = false;
+    ring.renderOrder = 2;
+    ring.raycast = () => {};
+    mesh.add(ring);
+
+    // World-space HTML tag.
+    const el = document.createElement("div");
+    el.className = `marker-tag ${marker.kind ?? "owner"}`;
+    const dot = document.createElement("i");
+    const text = document.createElement("span");
+    text.textContent = marker.title ?? "Marker";
+    el.append(dot, text);
+    el.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      if (placementMode) return;
+      options.onSelect?.(marker.id);
+    });
+    const tag = new CSS2DObject(el);
+    tag.position.set(0, MARKER_RADIUS + 0.22, 0);
+    tag.center.set(0.5, 1);
+    mesh.add(tag);
+    mesh.userData.tagEl = el;
+
+    return mesh;
   };
 
   const raycaster = new THREE.Raycaster();
@@ -334,7 +375,6 @@ export function createFloorPlanViewer(
 
     if (placementMode) {
       const point = pickSurface(event);
-      console.log("[viewer] placement click", { hasFloor: !!floorMesh, hasWall: !!wallMesh, point: point ? [point.x, point.y, point.z] : null });
       if (point) {
         options.onPlace?.({
           x: point.x,
@@ -400,7 +440,7 @@ export function createFloorPlanViewer(
       seen.add(marker.id);
       let mesh = markerMeshes.get(marker.id);
       if (!mesh) {
-        mesh = buildMarker(marker);
+        mesh = makeMarker(marker);
         markerLayer.add(mesh);
         markerMeshes.set(marker.id, mesh);
       } else if (!(draggingGizmo && mesh === selectedMesh)) {
@@ -410,6 +450,12 @@ export function createFloorPlanViewer(
       if (material.color.getHex() !== marker.color) {
         material.color.setHex(marker.color);
         material.emissive.setHex(marker.color);
+      }
+      const tag = mesh.userData.tagEl as HTMLElement | undefined;
+      if (tag) {
+        const label = tag.querySelector("span");
+        if (label && label.textContent !== (marker.title ?? "Marker")) label.textContent = marker.title ?? "Marker";
+        tag.className = `marker-tag ${marker.kind ?? "owner"}${mesh === selectedMesh ? " is-selected" : ""}`;
       }
     }
     for (const [id, mesh] of markerMeshes) {
@@ -425,17 +471,18 @@ export function createFloorPlanViewer(
     requestRender();
   };
 
+  const applySelection = () => {
+    if (selectedMesh && editable) transform.attach(selectedMesh);
+    else transform.detach();
+  };
+
   const setSelection = (id: string | undefined) => {
     const next = id ? markerMeshes.get(id) : undefined;
     if (next === selectedMesh) return;
     if (selectedMesh) setMarkerSelected(selectedMesh, false);
     selectedMesh = next;
-    if (selectedMesh) {
-      setMarkerSelected(selectedMesh, true);
-      transform.attach(selectedMesh);
-    } else {
-      transform.detach();
-    }
+    if (selectedMesh) setMarkerSelected(selectedMesh, true);
+    applySelection();
     requestRender();
   };
 
@@ -448,6 +495,7 @@ export function createFloorPlanViewer(
     const w = container.clientWidth || 1;
     const h = container.clientHeight || 1;
     renderer.setSize(w, h, false);
+    labelRenderer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     requestRender();
@@ -474,6 +522,11 @@ export function createFloorPlanViewer(
     setPlacementMode(active) {
       setPlacementMode(active);
     },
+    setEditable(next) {
+      editable = next;
+      applySelection();
+      requestRender();
+    },
     resetView() {
       frameCamera(currentModel);
       requestRender();
@@ -492,9 +545,8 @@ export function createFloorPlanViewer(
       disposeObject(content);
       disposeObject(markerLayer);
       renderer.dispose();
-      if (renderer.domElement.parentNode === container) {
-        container.removeChild(renderer.domElement);
-      }
+      if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
+      if (labelRenderer.domElement.parentNode === container) container.removeChild(labelRenderer.domElement);
     },
   };
 }

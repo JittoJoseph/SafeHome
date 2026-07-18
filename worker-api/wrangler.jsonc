@@ -12,12 +12,13 @@
 		"directory": "./public"
 	},
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		"head_sampling_rate": 1
 	},
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
-	]
+	],
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
@@ -40,5 +41,19 @@
 	 * Service Bindings (communicate between multiple Workers)
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
 	 */
-	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "safehome",
+			"database_id": "d46e6aa4-b3a8-4bba-9a7e-07536234375e",
+			"migrations_dir": "migrations",
+			"remote": true
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "FLOOR_PLANS",
+			"bucket_name": "safehome-floor-plans"
+		}
+	]
 }

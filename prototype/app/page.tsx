@@ -9,8 +9,8 @@ type Role = "home" | "owner" | "operator" | "responder";
 type Draft = { name: string; owner: string; address: string; image?: string };
 
 const POI_LIBRARY: Record<Poi["kind"], string[]> = {
-  owner: ["Electrical panel", "Gas shutoff", "Water shutoff", "Smoke detector", "Fire extinguisher", "Hazard storage"],
-  operator: ["Fire origin", "Trapped occupant", "Blocked exit", "Structural hazard", "Utility access"],
+  owner: ["Electrical panel", "Gas valve", "Gas cylinder", "Water shutoff", "Smoke detector", "Fire extinguisher"],
+  operator: ["Fire origin", "Trapped victim", "Blocked exit", "Structural hazard", "Utility access"],
 };
 
 const samples: Property[] = [
@@ -18,12 +18,25 @@ const samples: Property[] = [
   { id: "cedar", name: "Cedar Residence", owner: "Arun Mehta", address: "42 Meadow Lane, Brookfield", image: "/floor-plan-4.png", pois: [] },
 ];
 
-function Header({ role, setRole }: { role: Role; setRole: (role: Role) => void }) {
-  return <header>
-    <button className="brand" onClick={() => setRole("home")}>SAFEHOME <span>prototype</span></button>
-    <nav>{(["owner", "operator", "responder"] as Role[]).map((item) => <button key={item} className={role === item ? "current" : ""} onClick={() => setRole(item)}>{item}</button>)}</nav>
-    <div className="status"><i /> Local demo</div>
-  </header>;
+const ROLES: Role[] = ["owner", "operator", "responder"];
+
+function TopBar({ role, setRole }: { role: Role; setRole: (role: Role) => void }) {
+  return (
+    <header className="topbar">
+      <button className="brand" onClick={() => setRole("home")}>
+        <span className="brand-mark">S</span>
+        <span className="brand-name">SafeHome<small>Emergency Response</small></span>
+      </button>
+      <nav className="role-switch">
+        {ROLES.map((item) => (
+          <button key={item} className={role === item ? "on" : ""} onClick={() => setRole(item)}>{item}</button>
+        ))}
+      </nav>
+      <div className="topbar-meta">
+        <span className="status-chip"><i /> Local demo</span>
+      </div>
+    </header>
+  );
 }
 
 export default function Page() {
@@ -49,7 +62,10 @@ export default function Page() {
   const property = properties.find((item) => item.id === open);
   const incident = incidents.find((item) => item.propertyId === open);
   const pois = property ? [...property.pois, ...(incident?.pois ?? [])] : [];
-  const results = useMemo(() => properties.filter((item) => `${item.name}${item.owner}${item.address}`.toLowerCase().includes(query.toLowerCase())), [query, properties]);
+  const results = useMemo(
+    () => properties.filter((item) => `${item.name}${item.owner}${item.address}`.toLowerCase().includes(query.toLowerCase())),
+    [query, properties],
+  );
 
   // Reset the editing session whenever the open property changes.
   useEffect(() => { setSelectedPoi(undefined); setPlacingType(undefined); }, [open]);
@@ -65,6 +81,8 @@ export default function Page() {
   const activeKind: Poi["kind"] = role === "owner" ? "owner" : "operator";
   const canPlace = editable && (role === "owner" || (role === "operator" && !!incident));
 
+  const goRole = (next: Role) => { setRole(next); setOpen(undefined); setQuery(""); setDraft(undefined); };
+
   const startOnboarding = () => { setDraft({ name: "", owner: "", address: "" }); setStep(1); };
   const draftUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -75,7 +93,14 @@ export default function Page() {
   };
   const finishOnboarding = () => {
     if (!draft?.image || !draft.address.trim()) return;
-    const next: Property = { id: crypto.randomUUID(), name: draft.name.trim() || "Untitled property", owner: draft.owner.trim() || "Unassigned", address: draft.address.trim(), image: draft.image, pois: [] };
+    const next: Property = {
+      id: crypto.randomUUID(),
+      name: draft.name.trim() || "Untitled property",
+      owner: draft.owner.trim() || "Unassigned",
+      address: draft.address.trim(),
+      image: draft.image,
+      pois: [],
+    };
     setProperties((items) => [...items, next]);
     setDraft(undefined);
     setOpen(next.id);
@@ -111,65 +136,296 @@ export default function Page() {
   const leaveProperty = () => { setOpen(undefined); setQuery(""); };
   const selected = pois.find((poi) => poi.id === selectedPoi);
 
-  if (role === "home") return <main className="welcome">
-    <div className="welcome-copy"><p className="eyebrow">SAFEHOME / LOCAL PROTOTYPE</p><h1>Information that<br /><em>arrives before you do.</em></h1><p>Explore the property intelligence workflow as a homeowner, operator, or first responder.</p></div>
-    <div className="role-cards">{([ ["owner", "Homeowner", "Maintain floor plans and safety markers."], ["operator", "Emergency operator", "Locate a property and coordinate an incident."], ["responder", "First responder", "Review active information at a glance."] ] as const).map(([nextRole, title, description]) => <button key={nextRole} onClick={() => setRole(nextRole)}><span>Open workspace</span><b>{title}</b><small>{description}</small><i>→</i></button>)}</div>
-  </main>;
+  /* ---------------- Home / landing ---------------- */
+  if (role === "home") {
+    return (
+      <main>
+        <TopBar role={role} setRole={setRole} />
+        <section className="landing">
+          <div className="hero">
+            <div>
+              <p className="eyebrow">SafeHome — Emergency Response Platform</p>
+              <h1>Information that<br /><em>arrives before you do.</em></h1>
+              <p className="hero-lede">Homeowners map their property once. When seconds matter, operators and first responders see the layout, hazards, and live incident detail before they reach the door.</p>
+              <div className="hero-actions">
+                <button className="btn btn-primary" onClick={() => setRole("owner")}>Enter homeowner workspace</button>
+                <button className="btn btn-link" onClick={() => setRole("operator")}>Open operator console →</button>
+              </div>
+            </div>
+            <ConsolePreview />
+          </div>
 
-  if (role === "owner" && draft) {
-    const detailsReady = draft.address.trim().length > 0;
-    return <main className="shell"><Header role={role} setRole={(nextRole) => { setDraft(undefined); setRole(nextRole); }} />
-      <div className="property-bar"><button onClick={() => setDraft(undefined)}>← Workspace</button><div><strong>Add a property</strong><span>Set up a new floor plan record</span></div></div>
-      <section className="onboard">
-        <ol className="steps"><li className={step >= 1 ? "on" : ""}><b>1</b> Property details</li><li className={step >= 2 ? "on" : ""}><b>2</b> Floor plan</li></ol>
-        {step === 1 && <div className="onboard-card">
-          <p className="eyebrow">Step 1 of 2</p><h1>Where is the property?</h1><p className="lede">These details help operators locate the residence during an incident.</p>
-          <label className="field"><span>Property name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. Willow House" /></label>
-          <label className="field"><span>Owner</span><input value={draft.owner} onChange={(event) => setDraft({ ...draft, owner: event.target.value })} placeholder="Full name" /></label>
-          <label className="field"><span>Address <em>*</em></span><input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} placeholder="Street, suburb, city" /></label>
-          <div className="onboard-actions"><span /><button className="primary" disabled={!detailsReady} onClick={() => setStep(2)}>Continue →</button></div>
-        </div>}
-        {step === 2 && <div className="onboard-card">
-          <p className="eyebrow">Step 2 of 2</p><h1>Upload the floor plan</h1><p className="lede">A high-contrast plan works best — we build the 3D model locally in your browser.</p>
-          <label className={`dropzone${draft.image ? " filled" : ""}`}>
-            {draft.image ? <img src={draft.image} alt="Floor plan preview" /> : <div className="dropzone-empty"><b>Choose an image</b><span>PNG or JPG floor plan</span></div>}
-            <input type="file" accept="image/*" onChange={draftUpload} />
-          </label>
-          <div className="onboard-actions"><button className="ghost" onClick={() => setStep(1)}>← Back</button><button className="primary" disabled={!draft.image} onClick={finishOnboarding}>Create property</button></div>
-        </div>}
-      </section>
-    </main>;
+          <div className="how">
+            <p className="eyebrow">How it works</p>
+            <div className="how-grid">
+              {[
+                ["01", "Map the property", "Upload a floor plan and SafeHome builds a lightweight 3D model in the browser — no server rendering."],
+                ["02", "Mark what matters", "Place homeowner points of interest for panels, valves, and hazards directly onto the model."],
+                ["03", "Respond informed", "Operators open a live situation and responders navigate the model with every marker visible."],
+              ].map(([no, title, body]) => (
+                <div className="how-cell" key={no}>
+                  <span className="step-no">{no}</span>
+                  <b>{title}</b>
+                  <p>{body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
   }
 
-  if (property) return <main className="shell"><Header role={role} setRole={(nextRole) => { setRole(nextRole); leaveProperty(); }} />
-    <div className="property-bar"><button onClick={leaveProperty}>← Workspace</button><div><strong>{property.name}</strong><span>{property.address}</span></div><span className={incident ? "live" : "quiet"}>{incident ? "● Incident live" : "Property record"}</span></div>
-    <section className="property-layout"><div className="model-pane"><div className="model-title"><div><p className="eyebrow">{incident ? "Situation monitoring" : "Property model"}</p><h1>{property.address}</h1><p>Floor plan processed locally. Pick a marker type, then click the model to place it — drag the gizmo to fine-tune.</p></div>{role === "operator" && !incident && <button className="primary" onClick={createIncident}>Create incident</button>}</div>
-      <FloorPlanViewer image={property.image} pois={pois} editable={editable} placing={!!placingType} selectedId={selectedPoi} onSelect={setSelectedPoi} onPlace={placePoi} onMove={move} /></div>
-      <aside className="inspector">
-        {canPlace && <section>
-          <p className="eyebrow">Add point of interest</p><h2>Marker palette</h2>
-          {placingType
-            ? <div className="placing-banner"><div><b>Placing “{placingType}”</b><span>Click the model to drop it, or press Esc.</span></div><button className="ghost" onClick={() => setPlacingType(undefined)}>Cancel</button></div>
-            : <p className="empty">Choose a type below, then click on the 3D model to place it.</p>}
-          <div className="poi-palette">{POI_LIBRARY[activeKind].map((type) => <button key={type} className={placingType === type ? "active" : ""} onClick={() => { setSelectedPoi(undefined); setPlacingType(type); }}><i className={activeKind} />{type}</button>)}</div>
-        </section>}
-        {selected && editable && <section className="selected-card">
-          <p className="eyebrow">Selected marker</p><h2>{selected.type}</h2>
-          <p className="empty">Drag the coloured arrows in the viewport to move it along X, Y, and Z. No typing required.</p>
-          <div className="selected-actions"><button className="ghost" onClick={() => setSelectedPoi(undefined)}>Deselect</button><button className="danger-btn" onClick={() => removePoi(selected.id)}>Remove</button></div>
-        </section>}
-        <section>
-          <p className="eyebrow">Points of interest</p><h2>Marker register</h2>
-          {pois.length ? pois.map((poi) => <button className={`poi${selectedPoi === poi.id ? " chosen" : ""}`} key={poi.id} onClick={() => { setPlacingType(undefined); setSelectedPoi(poi.id); }}><i className={poi.kind} /><div><b>{poi.type}</b><span>{poi.kind === "owner" ? "Homeowner" : "Incident"} · {poi.label}</span></div></button>) : <p className="empty">No markers yet. Add only information that will help on arrival.</p>}
-        </section>
-        {role === "owner" && <section><p className="eyebrow">Floor plan</p><h2>Source image</h2><p className="empty">Upload a new plan to regenerate this local 3D model.</p><label className="upload">Replace floor plan<input type="file" accept="image/*" onChange={upload} /></label></section>}
-      </aside>
-    </section>
-  </main>;
+  /* ---------------- Onboarding ---------------- */
+  if (role === "owner" && draft) {
+    const detailsReady = draft.address.trim().length > 0;
+    return (
+      <main>
+        <TopBar role={role} setRole={goRole} />
+        <div className="ws-bar">
+          <button className="ws-back" onClick={() => setDraft(undefined)}>← Workspace</button>
+          <div className="ws-bar-title"><strong>Add a property</strong><span>Set up a new floor plan record</span></div>
+        </div>
+        <section className="onboard">
+          <ol className="steps">
+            <li className={step >= 1 ? "on" : ""}><b>1</b> Property details</li>
+            <li className={step >= 2 ? "on" : ""}><b>2</b> Floor plan</li>
+          </ol>
 
-  return <main className="shell"><Header role={role} setRole={setRole} /><section className="dashboard">
-    {role === "owner" && <><div className="dash-head"><div><p className="eyebrow">Homeowner workspace</p><h1>Your properties</h1><p>Manage current floor plans and permanent safety information.</p></div><button className="primary" onClick={startOnboarding}>New property</button></div><div className="property-grid">{properties.map((item) => <button onClick={() => setOpen(item.id)} key={item.id}><span>Property record</span><b>{item.name}</b><small>{item.address}</small><i>{item.pois.length} markers <em>→</em></i></button>)}</div></>}
-    {role === "operator" && <div className="operator"><p className="eyebrow">Emergency operator</p><h1>Find a property</h1><p>Search an owner, address, or property name before creating an incident.</p><div className="big-search"><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search owner or address" /><span>⌕</span></div>{query && <div className="suggestions">{results.map((item) => <button onClick={() => setOpen(item.id)} key={item.id}><div><b>{item.address}</b><span>{item.owner} · {item.name}</span></div><i>Open →</i></button>)}{!results.length && <p className="empty">No matching property records.</p>}</div>}</div>}
-    {role === "responder" && <><div className="dash-head"><div><p className="eyebrow">First responder</p><h1>Active incidents</h1><p>Read-only property models and markers created for the current situation.</p></div></div>{incidents.length ? <div className="property-grid">{incidents.map((item) => { const linked = properties.find((property) => property.id === item.propertyId); if (!linked) return null; return <button onClick={() => setOpen(linked.id)} key={item.id}><span className="red">● Live incident</span><b>{linked.address}</b><small>{linked.name} · {linked.owner}</small><i>{linked.pois.length + item.pois.length} markers <em>→</em></i></button>; })}</div> : <div className="empty-state"><p className="eyebrow">Standing by</p><h2>No active incidents</h2><p>Operator-created incidents appear here automatically.</p></div>}</>}
-  </section></main>;
+          {step === 1 && (
+            <div className="onboard-card">
+              <p className="eyebrow">Step 1 of 2</p>
+              <h1>Where is the property?</h1>
+              <p className="lede">These details help operators locate the residence during an incident.</p>
+              <label className="field"><span>Property name</span><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Willow House" /></label>
+              <label className="field"><span>Owner</span><input value={draft.owner} onChange={(e) => setDraft({ ...draft, owner: e.target.value })} placeholder="Full name" /></label>
+              <label className="field"><span>Address <em>*</em></span><input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} placeholder="Street, suburb, city" /></label>
+              <div className="onboard-actions">
+                <span />
+                <button className="btn btn-primary" disabled={!detailsReady} onClick={() => setStep(2)}>Continue →</button>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="onboard-card">
+              <p className="eyebrow">Step 2 of 2</p>
+              <h1>Upload the floor plan</h1>
+              <p className="lede">A clean, high-contrast plan works best — white background, black walls. We build the 3D model locally in your browser.</p>
+              <label className={`dropzone${draft.image ? " filled" : ""}`}>
+                {draft.image
+                  ? <img src={draft.image} alt="Floor plan preview" />
+                  : <div className="dropzone-empty"><span className="di">↑</span><b>Choose an image</b><span>PNG or JPG floor plan</span></div>}
+                <input type="file" accept="image/*" onChange={draftUpload} />
+              </label>
+              <div className="onboard-actions">
+                <button className="btn btn-ghost" onClick={() => setStep(1)}>← Back</button>
+                <button className="btn btn-primary" disabled={!draft.image} onClick={finishOnboarding}>Create property</button>
+              </div>
+            </div>
+          )}
+        </section>
+      </main>
+    );
+  }
+
+  /* ---------------- Property workspace ---------------- */
+  if (property) {
+    return (
+      <main>
+        <TopBar role={role} setRole={goRole} />
+        <div className="ws-bar">
+          <button className="ws-back" onClick={leaveProperty}>← Workspace</button>
+          <div className="ws-bar-title"><strong>{property.name}</strong><span>{property.address}</span></div>
+          <div className="ws-bar-spacer" />
+          {role === "operator" && !incident && <button className="btn btn-primary btn-sm" onClick={createIncident}>Create incident</button>}
+          <span className={incident ? "chip chip-live" : "chip chip-quiet"}>{incident ? <><i /> Incident live</> : "Property record"}</span>
+        </div>
+
+        <section className="workspace">
+          <div>
+            <div className="viewer-intro">
+              <p className="eyebrow">{incident ? "Situation monitoring" : "Property model"}</p>
+              <h1>{property.address}</h1>
+              <p>{editable
+                ? "Pick a marker type, click the model to place it, then drag the gizmo to fine-tune along X, Y and Z."
+                : "Read-only situation view. Navigate the model and review every homeowner and incident marker."}</p>
+            </div>
+            <FloorPlanViewer
+              image={property.image}
+              pois={pois}
+              editable={editable}
+              placing={!!placingType}
+              selectedId={selectedPoi}
+              onSelect={setSelectedPoi}
+              onPlace={placePoi}
+              onMove={move}
+            />
+          </div>
+
+          <aside className="inspector">
+            {canPlace && (
+              <section className="panel">
+                <p className="eyebrow">Add point of interest</p>
+                <h2>Marker palette</h2>
+                {placingType
+                  ? <div className="placing-banner"><div><b>Placing “{placingType}”</b><span>Click the model to drop it, or press Esc.</span></div><button className="btn btn-ghost btn-sm" onClick={() => setPlacingType(undefined)}>Cancel</button></div>
+                  : <p className="hint">Choose a type, then click the 3D model to place it.</p>}
+                <div className="palette">
+                  {POI_LIBRARY[activeKind].map((type) => (
+                    <button key={type} className={placingType === type ? "active" : ""} onClick={() => { setSelectedPoi(undefined); setPlacingType(type); }}>
+                      <i className={activeKind} />{type}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {selected && editable && (
+              <section className="panel selected-card">
+                <p className="eyebrow">Selected marker</p>
+                <h2>{selected.type}</h2>
+                <p className="hint">Drag the coloured arrows in the viewport to move it along X, Y and Z. No typing required.</p>
+                <div className="selected-actions">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSelectedPoi(undefined)}>Deselect</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => removePoi(selected.id)}>Remove</button>
+                </div>
+              </section>
+            )}
+
+            <section className="panel">
+              <p className="eyebrow">Points of interest</p>
+              <h2>Marker register</h2>
+              {pois.length ? (
+                <div className="register">
+                  {pois.map((poi) => (
+                    <button key={poi.id} className={selectedPoi === poi.id ? "chosen" : ""} onClick={() => { setPlacingType(undefined); setSelectedPoi(poi.id); }}>
+                      <i className={poi.kind} />
+                      <span><b>{poi.type}</b><span>{poi.kind === "owner" ? "Homeowner" : "Incident"} · {poi.label}</span></span>
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="empty">No markers yet. Add only information that will help on arrival.</p>}
+            </section>
+
+            {role === "owner" && (
+              <section className="panel">
+                <p className="eyebrow">Floor plan</p>
+                <h2>Source image</h2>
+                <p className="hint">Uploading a new plan replaces the current one and regenerates the 3D model.</p>
+                <label className="upload-btn">Replace floor plan<input type="file" accept="image/*" onChange={upload} /></label>
+              </section>
+            )}
+          </aside>
+        </section>
+      </main>
+    );
+  }
+
+  /* ---------------- Dashboards ---------------- */
+  return (
+    <main>
+      <TopBar role={role} setRole={goRole} />
+
+      {role === "owner" && (
+        <section className="page">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Homeowner workspace</p>
+              <h1>Your properties</h1>
+              <p>Manage floor plans and the permanent safety information responders rely on.</p>
+            </div>
+            <button className="btn btn-primary" onClick={startOnboarding}>New property</button>
+          </div>
+          <div className="card-grid">
+            {properties.map((item) => (
+              <button className="entity-card" onClick={() => setOpen(item.id)} key={item.id}>
+                <span className="entity-tag">Property record</span>
+                <b>{item.name}</b>
+                <small>{item.address}</small>
+                <span className="entity-foot">{item.pois.length} markers <em>→</em></span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {role === "operator" && (
+        <section className="page">
+          <div className="search-wrap">
+            <p className="eyebrow">Emergency operator</p>
+            <h1>Find a property</h1>
+            <p>Search by owner name or address, then open the record to create a live situation.</p>
+            <div className="search-field">
+              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search owner or address" />
+              <span>⌕</span>
+            </div>
+            {query && (
+              <div className="search-results">
+                {results.map((item) => (
+                  <button key={item.id} onClick={() => setOpen(item.id)}>
+                    <div><b>{item.address}</b><span>{item.owner} · {item.name}</span></div>
+                    <i>Open →</i>
+                  </button>
+                ))}
+                {!results.length && <p className="search-empty">No matching property records.</p>}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {role === "responder" && (
+        <section className="page">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow coral">First responder</p>
+              <h1>Active incidents</h1>
+              <p>Read-only property models with every homeowner and operator marker for the current situation.</p>
+            </div>
+          </div>
+          {incidents.length ? (
+            <div className="card-grid">
+              {incidents.map((item) => {
+                const linked = properties.find((p) => p.id === item.propertyId);
+                if (!linked) return null;
+                return (
+                  <button className="entity-card" key={item.id} onClick={() => setOpen(linked.id)}>
+                    <span className="entity-tag live">● Live incident</span>
+                    <b>{linked.address}</b>
+                    <small>{linked.name} · {linked.owner}</small>
+                    <span className="entity-foot">{linked.pois.length + item.pois.length} markers <em>→</em></span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty-block">
+              <p className="eyebrow">Standing by</p>
+              <h2>No active incidents</h2>
+              <p>Operator-created situations appear here automatically.</p>
+            </div>
+          )}
+        </section>
+      )}
+    </main>
+  );
+}
+
+function ConsolePreview() {
+  return (
+    <div className="console-card">
+      <div className="console-head">
+        <span className="mono">Situation · SH-2049</span>
+        <span className="console-live"><i /> Live</span>
+      </div>
+      <div className="console-title">18 Cedar Grove</div>
+      <div className="console-sub">Brookfield · Willow House · Mira Patel</div>
+      <div className="console-rows">
+        <div className="console-row"><i className="operator" /><b>Fire origin — kitchen</b><span>Operator</span></div>
+        <div className="console-row"><i className="owner" /><b>Electrical panel — hallway</b><span>Owner</span></div>
+        <div className="console-row"><i className="owner" /><b>Gas valve — exterior wall</b><span>Owner</span></div>
+      </div>
+    </div>
+  );
 }

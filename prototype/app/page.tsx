@@ -68,8 +68,6 @@ export default function Page() {
     [query, properties],
   );
 
-  // Reset the editing session whenever the open property changes.
-  useEffect(() => { setSelectedPoi(undefined); setPlacingType(undefined); }, [open]);
   // Escape cancels placement mode.
   useEffect(() => {
     if (!placingType) return;
@@ -82,7 +80,9 @@ export default function Page() {
   const activeKind: Poi["kind"] = role === "owner" ? "owner" : "operator";
   const canPlace = editable && (role === "owner" || (role === "operator" && !!incident));
 
-  const goRole = (next: Role) => { setRole(next); setOpen(undefined); setQuery(""); setDraft(undefined); };
+  const resetSession = () => { setSelectedPoi(undefined); setPlacingType(undefined); setConfirmAction(undefined); };
+  const openProperty = (id: string) => { resetSession(); setOpen(id); };
+  const goRole = (next: Role) => { resetSession(); setRole(next); setOpen(undefined); setQuery(""); setDraft(undefined); };
 
   const startOnboarding = () => { setDraft({ name: "", owner: "", address: "" }); setStep(1); };
   const draftUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -104,7 +104,7 @@ export default function Page() {
     };
     setProperties((items) => [...items, next]);
     setDraft(undefined);
-    setOpen(next.id);
+    openProperty(next.id);
   };
 
   const upload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -134,7 +134,7 @@ export default function Page() {
     setSelectedPoi((current) => current === id ? undefined : current);
   };
 
-  const leaveProperty = () => { setOpen(undefined); setQuery(""); };
+  const leaveProperty = () => { resetSession(); setOpen(undefined); setQuery(""); };
   const selected = pois.find((poi) => poi.id === selectedPoi);
 
   const deleteProperty = (id: string) => {
@@ -143,9 +143,6 @@ export default function Page() {
     setOpen((current) => current === id ? undefined : current);
   };
   const closeIncident = (propertyId: string) => setIncidents((items) => items.filter((item) => item.propertyId !== propertyId));
-
-  // Reset any pending confirmation when the open property or role changes.
-  useEffect(() => setConfirmAction(undefined), [open, role]);
   const ask = (label: string, verb: string, run: () => void) => setConfirmAction({ label, verb, run });
 
   /* ---------------- Home / landing ---------------- */
@@ -409,7 +406,7 @@ export default function Page() {
               </div>
               {properties.map((item) => (
                 <div className="record-row" key={item.id}>
-                  <button className="record-main" onClick={() => setOpen(item.id)}>
+                  <button className="record-main" onClick={() => openProperty(item.id)}>
                     <span className="rr-primary">
                       <b>{item.name}</b>
                       <small>{item.address}</small>
@@ -446,7 +443,7 @@ export default function Page() {
             {query && (
               <div className="search-results">
                 {results.map((item) => (
-                  <button key={item.id} onClick={() => setOpen(item.id)}>
+                  <button key={item.id} onClick={() => openProperty(item.id)}>
                     <div><b>{item.address}</b><span>{item.owner} · {item.name}</span></div>
                     <i>Open →</i>
                   </button>
@@ -481,7 +478,7 @@ export default function Page() {
                 if (!linked) return null;
                 return (
                   <div className="record-row" key={item.id}>
-                    <button className="record-main" onClick={() => setOpen(linked.id)}>
+                    <button className="record-main" onClick={() => openProperty(linked.id)}>
                       <span className="rr-primary">
                         <b><span className="rr-live" />{linked.address}</b>
                         <small>{linked.name} · {item.created}</small>

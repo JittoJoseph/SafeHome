@@ -49,6 +49,7 @@ export default function Page() {
   const [step, setStep] = useState(1);
   const [selectedPoi, setSelectedPoi] = useState<string>();
   const [placingType, setPlacingType] = useState<string>();
+  const [confirmAction, setConfirmAction] = useState<{ label: string; verb: string; run: () => void }>();
 
   useEffect(() => {
     const saved = localStorage.getItem("safehome-v4");
@@ -136,6 +137,17 @@ export default function Page() {
   const leaveProperty = () => { setOpen(undefined); setQuery(""); };
   const selected = pois.find((poi) => poi.id === selectedPoi);
 
+  const deleteProperty = (id: string) => {
+    setProperties((items) => items.filter((item) => item.id !== id));
+    setIncidents((items) => items.filter((item) => item.propertyId !== id));
+    setOpen((current) => current === id ? undefined : current);
+  };
+  const closeIncident = (propertyId: string) => setIncidents((items) => items.filter((item) => item.propertyId !== propertyId));
+
+  // Reset any pending confirmation when the open property or role changes.
+  useEffect(() => setConfirmAction(undefined), [open, role]);
+  const ask = (label: string, verb: string, run: () => void) => setConfirmAction({ label, verb, run });
+
   /* ---------------- Home / landing ---------------- */
   if (role === "home") {
     return (
@@ -183,8 +195,11 @@ export default function Page() {
       <main>
         <TopBar role={role} setRole={goRole} />
         <div className="ws-bar">
-          <button className="ws-back" onClick={() => setDraft(undefined)}>← Workspace</button>
-          <div className="ws-bar-title"><strong>Add a property</strong><span>Set up a new floor plan record</span></div>
+          <button className="icon-btn" onClick={() => setDraft(undefined)} aria-label="Back to workspace">←</button>
+          <div className="ws-heading">
+            <span className="ws-context mono">Homeowner workspace</span>
+            <div className="ws-heading-main"><strong>Add a property</strong></div>
+          </div>
         </div>
         <section className="onboard">
           <ol className="steps">
@@ -235,11 +250,34 @@ export default function Page() {
       <main>
         <TopBar role={role} setRole={goRole} />
         <div className="ws-bar">
-          <button className="ws-back" onClick={leaveProperty}>← Workspace</button>
-          <div className="ws-bar-title"><strong>{property.name}</strong><span>{property.address}</span></div>
-          <div className="ws-bar-spacer" />
-          {role === "operator" && !incident && <button className="btn btn-primary btn-sm" onClick={createIncident}>Create incident</button>}
-          <span className={incident ? "chip chip-live" : "chip chip-quiet"}>{incident ? <><i /> Incident live</> : "Property record"}</span>
+          <button className="icon-btn" onClick={leaveProperty} aria-label="Back to workspace">←</button>
+          <div className="ws-heading">
+            <span className="ws-context mono">{role === "owner" ? "Homeowner workspace" : role === "operator" ? "Operator console" : "Responder view"}</span>
+            <div className="ws-heading-main">
+              <strong>{property.name}</strong>
+              <span className="ws-addr">{property.address}</span>
+            </div>
+          </div>
+          <div className="ws-actions">
+            {confirmAction ? (
+              <div className="confirm-bar">
+                <span>{confirmAction.label}</span>
+                <button className="btn btn-danger btn-sm" onClick={() => { confirmAction.run(); setConfirmAction(undefined); }}>{confirmAction.verb}</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmAction(undefined)}>Cancel</button>
+              </div>
+            ) : (
+              <>
+                <span className={incident ? "chip chip-live" : "chip chip-quiet"}>{incident ? <><i /> Incident live</> : "Property record"}</span>
+                {role === "operator" && !incident && <button className="btn btn-primary btn-sm" onClick={createIncident}>Create incident</button>}
+                {incident && (role === "operator" || role === "responder") && (
+                  <button className="btn btn-danger btn-sm" onClick={() => ask(`Close the live incident at ${property.name}?`, "Close incident", () => { closeIncident(property.id); })}>Close incident</button>
+                )}
+                {role === "owner" && (
+                  <button className="btn btn-danger btn-sm" onClick={() => ask(`Delete ${property.name}? This removes its floor plan and markers.`, "Delete", () => { deleteProperty(property.id); })}>Delete property</button>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         <section className="workspace">
@@ -339,12 +377,16 @@ export default function Page() {
           </div>
           <div className="card-grid">
             {properties.map((item) => (
-              <button className="entity-card" onClick={() => setOpen(item.id)} key={item.id}>
-                <span className="entity-tag">Property record</span>
-                <b>{item.name}</b>
-                <small>{item.address}</small>
-                <span className="entity-foot">{item.pois.length} markers <em>→</em></span>
-              </button>
+              <div className="entity" key={item.id}>
+                <button className="entity-card" onClick={() => setOpen(item.id)}>
+                  <span className="entity-tag">Property record</span>
+                  <b>{item.name}</b>
+                  <small>{item.address}</small>
+                  <span className="entity-foot">{item.pois.length} markers <em>→</em></span>
+                </button>
+                <button className="entity-del" aria-label={`Delete ${item.name}`} title="Delete property"
+                  onClick={() => { if (window.confirm(`Delete ${item.name}? This removes its floor plan and markers.`)) deleteProperty(item.id); }}>×</button>
+              </div>
             ))}
           </div>
         </section>
@@ -390,12 +432,16 @@ export default function Page() {
                 const linked = properties.find((p) => p.id === item.propertyId);
                 if (!linked) return null;
                 return (
-                  <button className="entity-card" key={item.id} onClick={() => setOpen(linked.id)}>
-                    <span className="entity-tag live">● Live incident</span>
-                    <b>{linked.address}</b>
-                    <small>{linked.name} · {linked.owner}</small>
-                    <span className="entity-foot">{linked.pois.length + item.pois.length} markers <em>→</em></span>
-                  </button>
+                  <div className="entity" key={item.id}>
+                    <button className="entity-card" onClick={() => setOpen(linked.id)}>
+                      <span className="entity-tag live">● Live incident</span>
+                      <b>{linked.address}</b>
+                      <small>{linked.name} · {linked.owner}</small>
+                      <span className="entity-foot">{linked.pois.length + item.pois.length} markers <em>→</em></span>
+                    </button>
+                    <button className="entity-del" aria-label="Close incident" title="Close incident"
+                      onClick={() => { if (window.confirm(`Close the live incident at ${linked.address}?`)) closeIncident(linked.id); }}>×</button>
+                  </div>
                 );
               })}
             </div>
